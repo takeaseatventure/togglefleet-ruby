@@ -9,11 +9,27 @@ Gem::Specification.new do |spec|
   spec.email       = ["support@togglefleet.com"]
 
   spec.summary     = "Cloud feature flags for Ruby — all five gates, evaluated locally."
-  spec.description = "ToggleFleet is a cloud feature-flag service. This gem fetches your " \
-                     "environment's flags, caches them, and evaluates all five gates " \
-                     "(boolean, actor, group, % of actors, % of time) locally — so checking a " \
-                     "flag is a hash lookup, not a network call. Background refresh uses " \
-                     "conditional ETag requests; evaluation is byte-identical to the server."
+  # NOTE: rubygems.org does NOT render README.md — the gem page body is this
+  # description and nothing else. Anything a developer needs in order to decide
+  # whether to put this in their request path has to be said here.
+  spec.description = <<~DESC
+    ToggleFleet is a hosted feature-flag service for Ruby. This gem fetches your environment's
+    flags once, refreshes them in the background with conditional ETag requests, and evaluates
+    all five gates — boolean, actor, group, percentage-of-actors (sticky), and percentage-of-time
+    — entirely in-process. Checking a flag is a hash lookup, not a network call, so flags cost
+    nothing on the hot path and keep working at their last known values if ToggleFleet is
+    unreachable.
+
+    Zero runtime dependencies — only the Ruby standard library. Thread-safe, fork-safe under
+    Puma/Unicorn/Passenger, and fail-safe by design: any error returns your configured default
+    rather than raising into a request.
+
+    Evaluation is byte-identical to server-side evaluation, including MD5 bucketing, so a sticky
+    rollout targets exactly the same actors whether it is resolved locally or through the API.
+    Group membership is decided by predicates in your own code, so no user data leaves your process.
+
+    Requires a ToggleFleet account for an SDK key. Full documentation at https://togglefleet.com/docs.
+  DESC
   spec.homepage    = "https://togglefleet.com"
   spec.license     = "MIT"
   spec.required_ruby_version = ">= 3.0"

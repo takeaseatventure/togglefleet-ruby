@@ -3,6 +3,19 @@
 All notable changes to the ToggleFleet Ruby SDK are documented here.
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.1] — 2026-07-26
+
+Documentation only. No code changes; upgrading is optional.
+
+### Changed
+
+- Expanded the gem description. rubygems.org does not render `README.md` — the
+  gem page shows only the description — so the things a developer needs in order
+  to evaluate the library (hot-path cost, failure behaviour under an outage,
+  zero-dependency footprint, fork safety, and the fact that group membership is
+  resolved in your own process so no user data leaves it) are now stated there
+  rather than being visible only on GitHub.
+
 ## [0.2.0] — 2026-07-26
 
 Reliability release. Every change here is about the SDK staying out of your
