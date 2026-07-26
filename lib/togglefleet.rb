@@ -46,13 +46,15 @@ module ToggleFleet
     attr_reader :config
 
     def initialize(config)
-      @config  = config
-      @groups  = {}            # name => predicate proc
-      @flags   = {}            # flag key => state hash
-      @etag    = nil
-      @loaded  = false
-      @mutex   = Mutex.new
-      @poller  = nil
+      @config      = config
+      @groups      = {}        # name => predicate proc
+      @flags       = {}        # flag key => state hash
+      @etag        = nil
+      @loaded      = false
+      @mutex       = Mutex.new
+      @poller      = nil
+      @poller_pid  = nil       # pid that owns @poller; threads do not survive fork
+      @last_attempt = nil      # monotonic time of the last fetch attempt (success or failure)
     end
 
     # Register a group predicate. Group membership is decided in YOUR code, so a flag enabled
@@ -65,25 +67,58 @@ module ToggleFleet
 
     # Pull the config once and start the background refresh thread. Idempotent.
     def start
-      sync
+      attempt_sync
+      start_poller
+      self
+    end
+
+    # Stop the background refresh thread. Safe to call more than once.
+    def stop
+      thread = @mutex.synchronize do
+        current = @poller
+        @poller = nil
+        @poller_pid = nil
+        current
+      end
+      thread&.kill
+      self
+    end
+
+    private def start_poller
       @mutex.synchronize do
-        @poller ||= Thread.new do
+        return if @poller && @poller_pid == Process.pid
+        @poller = Thread.new do
           loop do
-            sleep(@config.refresh_interval)
+            # Jitter the interval so a fleet of processes that booted together
+            # does not stampede the config endpoint in lockstep.
+            sleep(@config.refresh_interval * (0.85 + Kernel.rand * 0.3))
             begin; sync; rescue StandardError => e; log("refresh failed: #{e.class}: #{e.message}"); end
           end
         end
         @poller.name = "togglefleet-refresh" if @poller.respond_to?(:name=)
+        @poller_pid = Process.pid
       end
-      self
+    end
+
+    # Threads do not survive fork. Under Puma/Unicorn/Passenger in clustered
+    # mode the workers inherit @loaded=true and a dead poller, so without this
+    # they would serve the boot-time config forever and never refresh again.
+    private def restart_poller_if_forked
+      return if @poller_pid.nil? || @poller_pid == Process.pid
+      @mutex.synchronize do
+        @poller = nil
+        @poller_pid = nil
+      end
+      start_poller
     end
 
     # The whole point: evaluate locally, no network call here.
     def enabled?(flag, actor: nil, groups: nil)
+      restart_poller_if_forked
       ensure_loaded
       state  = @mutex.synchronize { @flags[flag.to_s] }
       result = state ? evaluate(state, actor, groups) : @config.default
-      @config.on_evaluation&.call(flag.to_s, actor, result)
+      notify_evaluation(flag.to_s, actor, result)
       result
     rescue StandardError => e
       log("enabled?(#{flag}) error: #{e.class}: #{e.message}")
@@ -126,9 +161,36 @@ module ToggleFleet
 
     private
 
+    # Lazy first load, rate-limited.
+    #
+    # Previously this retried on EVERY enabled? call while unloaded, so if the
+    # config endpoint was unreachable each flag check blocked for open_timeout +
+    # read_timeout (up to 8s) — turning a background outage into a foreground
+    # one, which is the exact opposite of the gem's promise. Now a failed attempt
+    # is not repeated until refresh_interval has elapsed; until then evaluation
+    # returns config.default immediately with no network at all.
     def ensure_loaded
       return if @loaded
+      return unless claim_attempt
       begin; sync; rescue StandardError => e; log("initial load failed, using defaults: #{e.message}"); end
+    end
+
+    # True at most once per refresh_interval. Deliberately records the attempt
+    # before it happens, so a hung request cannot let a second caller through.
+    def claim_attempt
+      now = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+      @mutex.synchronize do
+        return false if @last_attempt && (now - @last_attempt) < @config.refresh_interval
+        @last_attempt = now
+        true
+      end
+    end
+
+    def attempt_sync
+      return unless claim_attempt
+      sync
+    rescue StandardError => e
+      log("initial load failed, using defaults: #{e.class}: #{e.message}")
     end
 
     # Mirrors the server's evaluation byte-for-byte (same MD5 bucketing) so a sticky rollout
@@ -177,13 +239,25 @@ module ToggleFleet
       names.uniq
     end
 
+    def notify_evaluation(flag, actor, result)
+      @config.on_evaluation&.call(flag, actor, result)
+    rescue StandardError => e
+      log("on_evaluation callback raised: #{e.class}: #{e.message}")
+    end
+
     def log(msg)
       @config.logger&.warn("[togglefleet] #{msg}")
+    rescue StandardError
+      nil
     end
   end
 
   class << self
     def configure
+      # Stop the previous client first: reconfiguring used to abandon its poller
+      # thread, which kept running forever against the old config — a thread and
+      # socket leak every time configure was called (common in test suites).
+      @client&.stop
       @config = Configuration.new
       yield @config if block_given?
       @client = Client.new(@config)

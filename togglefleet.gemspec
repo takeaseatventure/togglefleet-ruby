@@ -18,13 +18,18 @@ Gem::Specification.new do |spec|
   spec.license     = "MIT"
   spec.required_ruby_version = ">= 3.0"
 
-  spec.files = Dir["lib/**/*.rb", "README.md", "LICENSE"]
+  spec.files = Dir["lib/**/*.rb", "README.md", "LICENSE", "CHANGELOG.md"]
   spec.require_paths = ["lib"]
 
+  # These become the sidebar links on rubygems.org/gems/togglefleet. Without
+  # changelog_uri and bug_tracker_uri the page shows no way to see what changed
+  # or where to report a problem, which reads as unmaintained.
   spec.metadata = {
-    "homepage_uri"    => "https://togglefleet.com",
-    "source_code_uri" => "https://github.com/takeaseatventure/togglefleet-ruby",
+    "homepage_uri"      => "https://togglefleet.com",
+    "source_code_uri"   => "https://github.com/takeaseatventure/togglefleet-ruby",
     "documentation_uri" => "https://togglefleet.com/docs",
+    "changelog_uri"     => "https://github.com/takeaseatventure/togglefleet-ruby/blob/main/CHANGELOG.md",
+    "bug_tracker_uri"   => "https://github.com/takeaseatventure/togglefleet-ruby/issues",
     "rubygems_mfa_required" => "true"
   }
 end

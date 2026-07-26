@@ -81,7 +81,8 @@ ToggleFleet.all(actor: current_user)
 - **Background refresh** — a single daemon thread polls every `refresh_interval` seconds with an
   `If-None-Match` ETag, so unchanged configs cost one `304` and zero parsing.
 - **Fail-safe** — if the service is unreachable, the gem serves the last good config; if it never
-  loaded, every flag returns `config.default` (defaults to `false`).
+  loaded, `start` continues with the background poller and every flag returns `config.default`
+  (defaults to `false`). An instrumentation callback failure is logged without changing a flag result.
 - **Instrumentation** — hook every evaluation for metrics or logging:
 
 ```ruby
